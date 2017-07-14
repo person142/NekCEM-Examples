@@ -10,6 +10,9 @@ c-----------------------------------------------------------------------
       include 'TOTAL'
       include 'EMWAVE'
 
+      common /userparam/ omega
+      real omega
+
       common /userincident/ ninc,incindex(lxzfl)
       integer ninc,incindex
 
@@ -18,9 +21,7 @@ c-----------------------------------------------------------------------
       real incfex(lxzfl),incfey(lxzfl),incfez(lxzfl)
 
       integer i,j,k
-      real yy,eps,mu,eta,uinc,omega
-
-      omega = 3.01069
+      real yy,eps,mu,eta,uinc
 
       do i = 1,ninc
          j = incindex(i)
@@ -92,6 +93,9 @@ c-----------------------------------------------------------------------
       include 'EMWAVE'
       include 'PML'
 
+      common /userparam/ omega
+      real omega
+
       common /userincident/ ninc,incindex(lxzfl)
       integer ninc,incindex
 
@@ -106,8 +110,8 @@ c     is resolved.
       integer i,e,f,j,k
       integer nx1_2
       real xx,yy,zz,rr
-      
-c     Set the permittivity and permeability
+
+      omega = 3.0
 
       nx1_2 = nx1/2
 c     Set the permittivities
@@ -115,36 +119,32 @@ c     Set the permittivities
         xx = xm1(nx1_2,nx1_2,nx1_2,e)
         yy = ym1(nx1_2,nx1_2,nx1_2,e)
         zz = zm1(nx1_2,nx1_2,nx1_2,e)
-        rr= xx**2+yy**2
-        rr= sqrt(rr)        
+        rr = sqrt(xx**2+yy**2)
 
         if (rr.lt.0.5) then
-c       inside cylinder
+c       Inside the cylinder
           do i = 1,nxyz
              j = i+nxyz*(e-1)
-    
+
              if (abs(zz).lt.0.25) then
-               permittivity(j) = 130 
-               permeability(j) = 1.0 
+               permittivity(j) = 130.0
+               permeability(j) = 1.0
              else
-               permittivity(j) = 1.0 
+               permittivity(j) = 1.0
                permeability(j) = 1.0
              endif
            enddo
-
         else
-c     outside cylinder
+c     Outside the cylinder
           do i = 1,nxyz
              j = i+nxyz*(e-1)
-             permittivity(j) = 1.0 
-             permeability(j) = 1.0 
+             permittivity(j) = 1.0
+             permeability(j) = 1.0
            enddo
-
          endif
       enddo
 
-c     Where incident field needs to be added
-
+c     Mark where the incident field needs to be added
       ninc = 0
       do e = 1,nelt
          do f = 1,nfaces
@@ -182,10 +182,7 @@ c-----------------------------------------------------------------------
 c-----------------------------------------------------------------------
       subroutine usrdat2
 c-----------------------------------------------------------------------
-c     Use this subroutine to set the dimensions of the domain.
       implicit none
-      include 'SIZE'
-
 
       return
       end
@@ -197,7 +194,7 @@ c-----------------------------------------------------------------------
       include 'TOTAL'
       include 'EMWAVE'
 
-      common /ccpu/  cpu_t,cpu_dtime,cpu_chk
+      common /ccpu/ cpu_t,cpu_dtime,cpu_chk
       real cpu_t,cpu_dtime,cpu_chk
 
       real cpu_p_t
