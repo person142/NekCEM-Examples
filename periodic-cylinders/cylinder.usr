@@ -1,6 +1,6 @@
 c-----------------------------------------------------------------------
 c
-c     Normally-incident plane wave striking a dielectric interface.
+c     Plane wave striking a cylindrical resonator
 c
 c-----------------------------------------------------------------------
        subroutine userinc(tt,incfhx,incfhy,incfhz,incfex,incfey,incfez)
@@ -10,8 +10,8 @@ c-----------------------------------------------------------------------
       include 'TOTAL'
       include 'EMWAVE'
 
-      common /userparam/ omega
-      real omega
+      common /userparam/ omega,period
+      real omega,period
 
       common /userincident/ ninc,incindex(lxzfl)
       integer ninc,incindex
@@ -21,18 +21,34 @@ c-----------------------------------------------------------------------
       real incfex(lxzfl),incfey(lxzfl),incfez(lxzfl)
 
       integer i,j,k
-      real yy,eps,mu,eta,uinc
+      real yy,eps,mu,ky,eta,uinc
+      real ramp
 
       do i = 1,ninc
          j = incindex(i)
          k = cemface(j)
+         yy = ym1(k,1,1,1)
          eps = permittivity(k)
          mu = permeability(k)
          eta = sqrt(mu/eps)
-         uinc = sin(-omega*tt)
+         ky = omega*sqrt(mu*eps)
+         uinc = ramp(tt/(3.0*period))*sin(ky*yy-omega*tt)
          incfhx(j) = incfhx(j)+uinc
          incfey(j) = incfey(j)+eta*uinc
       enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      function ramp(tt)
+c-----------------------------------------------------------------------
+c     Monotonic function that goes from 0 to 1 on the interval [0, 1].
+      implicit none
+
+      real ramp
+      real tt
+
+      ramp = 0.5*(1.0+erf(5.0*tt-5.0))
 
       return
       end
@@ -93,11 +109,14 @@ c-----------------------------------------------------------------------
       include 'EMWAVE'
       include 'PML'
 
-      common /userparam/ omega
-      real omega
+      common /userparam/ omega,period
+      real omega,period
 
       common /userincident/ ninc,incindex(lxzfl)
       integer ninc,incindex
+
+      common /scaling/ length,sxy,sz,radius,gap,height
+      real length,sxy,sz,radius,gap,height
 
 c     These don't do anything! This is a temporary measure until
 c
@@ -109,9 +128,23 @@ c     is resolved.
       logical markinc
       integer i,e,f,j,k
       integer nx1_2
+      real c0,lambda,twopi
       real xx,yy,zz,rr
+      parameter (
+     $     c0 = 299792458,      ! speed of light, in m/s
+     $     twopi = 8.0*atan(1.0))
 
-      omega = 3.0
+c     Wavelength of the incident wave, in m
+      lambda = 480e-9
+c     Nondimensionalize the wavelength
+      lambda = lambda/length
+      omega = twopi/lambda
+      period = twopi/omega
+      if (nid.eq.0) then
+         write(*,*) 'uservp: wavelength lambda = ',lambda
+         write(*,*) 'uservp: frequency omega = ',omega
+         write(*,*) 'uservp: period = ',period
+      endif
 
       nx1_2 = nx1/2
 c     Set the permittivities
@@ -121,27 +154,22 @@ c     Set the permittivities
         zz = zm1(nx1_2,nx1_2,nx1_2,e)
         rr = sqrt(xx**2+yy**2)
 
-        if (rr.lt.0.5) then
-c       Inside the cylinder
-          do i = 1,nxyz
-             j = i+nxyz*(e-1)
-
-             if (abs(zz).lt.0.25) then
-               permittivity(j) = 130.0
-               permeability(j) = 1.0
-             else
-               permittivity(j) = 1.0
-               permeability(j) = 1.0
-             endif
+        if (rr.lt.radius.and.abs(zz).lt.0.5*height) then
+           write(*,*) 'aaa',rr,zz
+c     Inside the resonator
+           do i = 1,nxyz
+              j = i+nxyz*(e-1)
+              permittivity(j) = 130.0
+              permeability(j) = 1.0
            enddo
         else
-c     Outside the cylinder
-          do i = 1,nxyz
-             j = i+nxyz*(e-1)
-             permittivity(j) = 1.0
-             permeability(j) = 1.0
+c     Outside the resonator
+           do i = 1,nxyz
+              j = i+nxyz*(e-1)
+              permittivity(j) = 1.4
+              permeability(j) = 1.0
            enddo
-         endif
+        endif
       enddo
 
 c     Mark where the incident field needs to be added
@@ -183,6 +211,65 @@ c-----------------------------------------------------------------------
       subroutine usrdat2
 c-----------------------------------------------------------------------
       implicit none
+      include 'SIZE'
+      include 'GEOM'
+      include 'PML'
+
+      common /scaling/ length,sxy,sz,radius,gap,height
+      real length,sxy,sz,radius,gap,height
+
+      integer i,nz
+      real xmin,xmax,ymin,ymax,zmin,zmax
+      real glmax,glmin
+
+c     Number of layers in the z direction
+      nz = 7
+c     Characteristic length to use in nondimensionalization in m
+      length = 100.0e-9
+c     Gap between cylinders in m
+      gap = 48e-9
+c     Radius of the cylinder in m
+      radius = 115e-9
+c     Height of the cylinder in m
+      height = 135e-9
+c     Nondimensionalize
+      gap = gap/length
+      radius = radius/length
+      height = height/length
+
+c     Common xy scaling
+      sxy = gap+2.0*radius
+c     Scale by (nz layers)/(nz - (layers for pml + buffer layers))
+      sz = (dble(nz)/dble(nz-2*pmlthick-2))*height
+
+      xmin = glmin(xm1,npts)
+      xmax = glmax(xm1,npts)
+      ymin = glmin(ym1,npts)
+      ymax = glmax(ym1,npts)
+      zmin = glmin(zm1,npts)
+      zmax = glmax(zm1,npts)
+
+      do i = 1,npts
+         xm1(i,1,1,1) = sxy*(xm1(i,1,1,1)-xmin)/(xmax-xmin)-0.5*sxy
+         ym1(i,1,1,1) = sxy*(ym1(i,1,1,1)-ymin)/(ymax-ymin)-0.5*sxy
+         zm1(i,1,1,1) = sz*(zm1(i,1,1,1)-zmin)/(zmax-zmin)-0.5*sz
+      enddo
+
+      xmin = glmin(xm1,npts)
+      xmax = glmax(xm1,npts)
+      ymin = glmin(ym1,npts)
+      ymax = glmax(ym1,npts)
+      zmin = glmin(zm1,npts)
+      zmax = glmax(zm1,npts)
+
+      if (nid.eq.0) then
+         write(*,*) 'usrdat2: cylinder radius = ',radius
+         write(*,*) 'usrdat2: cylinder height = ',height
+         write(*,*) 'usrdat2: cylinder gap = ',gap
+         write(*,*) 'usrdat2: xmin,xmax = ',xmin,xmax
+         write(*,*) 'usrdat2: ymin,ymax = ',ymin,ymax
+         write(*,*) 'usrdat2: zmin,zmax = ',zmin,zmax
+      endif
 
       return
       end
