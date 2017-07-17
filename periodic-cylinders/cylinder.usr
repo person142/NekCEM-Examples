@@ -10,8 +10,8 @@ c-----------------------------------------------------------------------
       include 'TOTAL'
       include 'EMWAVE'
 
-      common /userparam/ omega,period
-      real omega,period
+      common /userparam/ omega,period,lambda
+      real omega,period,lambda
 
       common /userincident/ ninc,incindex(lxzfl)
       integer ninc,incindex
@@ -21,18 +21,18 @@ c-----------------------------------------------------------------------
       real incfex(lxzfl),incfey(lxzfl),incfez(lxzfl)
 
       integer i,j,k
-      real yy,eps,mu,ky,eta,uinc
+      real zz,eps,mu,kz,eta,uinc
       real ramp
 
       do i = 1,ninc
          j = incindex(i)
          k = cemface(j)
-         yy = ym1(k,1,1,1)
+         zz = zm1(k,1,1,1)
          eps = permittivity(k)
          mu = permeability(k)
          eta = sqrt(mu/eps)
-         ky = omega*sqrt(mu*eps)
-         uinc = ramp(tt/(3.0*period))*sin(ky*yy-omega*tt)
+         kz = omega*sqrt(mu*eps)
+         uinc = ramp(tt/(3.0*period))*sin(-kz*zz-omega*tt)
          incfhx(j) = incfhx(j)+uinc
          incfey(j) = incfey(j)+eta*uinc
       enddo
@@ -48,7 +48,7 @@ c     Monotonic function that goes from 0 to 1 on the interval [0, 1].
       real ramp
       real tt
 
-      ramp = 0.5*(1.0+erf(5.0*tt-5.0))
+      ramp = 0.5*(1.0+erf(5.0*(tt-0.5)))
 
       return
       end
@@ -108,15 +108,20 @@ c-----------------------------------------------------------------------
       include 'TOTAL'
       include 'EMWAVE'
       include 'PML'
+      include 'mpif.h'
 
-      common /userparam/ omega,period
-      real omega,period
+      common /userparam/ omega,period,lambda
+      real omega,period,lambda
 
       common /userincident/ ninc,incindex(lxzfl)
       integer ninc,incindex
 
-      common /scaling/ length,sxy,sz,radius,gap,height
-      real length,sxy,sz,radius,gap,height
+      common /scaling/ length,sxy,sz,radius,gap,cylbot,cyltop
+      real length,sxy,sz,radius,gap,cylbot,cyltop
+
+      common /userout/ disp,outindex(lxzfl),nout
+      integer outindex,nout
+      integer(8) disp
 
 c     These don't do anything! This is a temporary measure until
 c
@@ -125,19 +130,17 @@ c
 c     is resolved.
       integer ix,iy,iz,iel
 
-      logical markinc
-      integer i,e,f,j,k
-      integer nx1_2
-      real c0,lambda,twopi
+      logical markinc,markout
+      integer i,e,f,j,k,nx1_2,ierr
+      integer disps(0:lp-1),tmp(0:lp-1)
       real xx,yy,zz,rr
+      real c0,twopi,tol
       parameter (
      $     c0 = 299792458,      ! speed of light, in m/s
-     $     twopi = 8.0*atan(1.0))
+     $     twopi = 8.0*atan(1.0),
+     $     tol = 1e-8)
 
-c     Wavelength of the incident wave, in m
-      lambda = 480e-9
 c     Nondimensionalize the wavelength
-      lambda = lambda/length
       omega = twopi/lambda
       period = twopi/omega
       if (nid.eq.0) then
@@ -154,19 +157,18 @@ c     Set the permittivities
         zz = zm1(nx1_2,nx1_2,nx1_2,e)
         rr = sqrt(xx**2+yy**2)
 
-        if (rr.lt.radius.and.abs(zz).lt.0.5*height) then
-           write(*,*) 'aaa',rr,zz
+        if (rr.lt.radius.and.zz.gt.cylbot.and.zz.lt.cyltop) then
 c     Inside the resonator
            do i = 1,nxyz
               j = i+nxyz*(e-1)
-              permittivity(j) = 130.0
+              permittivity(j) = 1.0 ! 2.5031**2
               permeability(j) = 1.0
            enddo
         else
 c     Outside the resonator
            do i = 1,nxyz
               j = i+nxyz*(e-1)
-              permittivity(j) = 1.4
+              permittivity(j) = 1.0 ! 1.41**2
               permeability(j) = 1.0
            enddo
         endif
@@ -183,7 +185,7 @@ c     j is the global face number
 c     k is the volume global number associated with face j.
                k = cemface(j)
                if (pmltag(e).eq.0
-     $              .or.abs(pmlinner(6)-zm1(k,1,1,1)).gt.1e-8) then
+     $              .or.abs(pmlinner(6)-zm1(k,1,1,1)).gt.tol) then
                   markinc = .false.
                   exit
                endif
@@ -197,6 +199,54 @@ c     k is the volume global number associated with face j.
             endif
          enddo
       enddo
+
+      if (nid.eq.0) write(*,*) 'uservp: bottom of the PML begins at ',
+     $     pmlinner(5)
+c     Mark where we want to write the H field to file
+      nout = 0
+      do e = 1,nelt
+         do f = 1,nfaces
+            markout = .true.
+            do i = 1,nxzf
+               j = (e-1)*nxzf*nfaces+nxzf*(f-1)+i
+               k = cemface(j)
+               if (pmltag(e).ne.0
+     $              .or.abs(pmlinner(5)-zm1(k,1,1,1)).gt.tol) then
+                  markout = .false.
+                  exit
+               endif
+            enddo
+            if (markout) then
+               do i = 1,nxzf
+                  nout = nout+1
+                  j = (e-1)*nxzf*nfaces+nxzf*(f-1)+i
+                  outindex(nout) = j
+               enddo
+            endif
+         enddo
+      enddo
+c     Compute the displacements in the file for the different processes
+c
+c     Step 1: figure out how many doubles each process needs to write;
+c     store the data in tmp
+      if (nid.eq.0) then
+         tmp(0) = nout
+         do i = 1,np-1
+            call mpi_recv(tmp(i),1,mpi_integer,i,i,mpi_comm_world,
+     $           ierr,mpi_status_ignore,ierr)
+         enddo
+c     Step 2: convert the number of doubles each process needs to write
+c     into a displacement in the file
+         disps(0) = 0
+         do i = 1,np-1
+            disps(i) = 8*tmp(i-1)+disps(i-1)
+         enddo
+      else
+         call mpi_send(nout,1,mpi_integer,0,nid,mpi_comm_world,ierr)
+      endif
+
+      call mpi_bcast(disps,np,mpi_integer,0,mpi_comm_world,ierr)
+      disp = disps(nid)
 
       return
       end
@@ -215,23 +265,27 @@ c-----------------------------------------------------------------------
       include 'GEOM'
       include 'PML'
 
-      common /scaling/ length,sxy,sz,radius,gap,height
-      real length,sxy,sz,radius,gap,height
+      common /scaling/ length,sxy,sz,radius,gap,cylbot,cyltop
+      real length,sxy,sz,radius,gap,cylbot,cyltop
 
-      integer i,nz
-      real xmin,xmax,ymin,ymax,zmin,zmax
+      common /userparam/ omega,period,lambda
+      real omega,period,lambda
+
+      integer i
+      real xmin,xmax,ymin,ymax,zmin,zmax,height
       real glmax,glmin
 
-c     Number of layers in the z direction
-      nz = 7
 c     Characteristic length to use in nondimensionalization in m
       length = 100.0e-9
+c     Wavelength of the incident wave, in m
+      lambda = 633e-9
+      lambda = lambda/length
 c     Gap between cylinders in m
-      gap = 48e-9
+      gap = 46e-9
 c     Radius of the cylinder in m
-      radius = 115e-9
+      radius = 158e-9
 c     Height of the cylinder in m
-      height = 135e-9
+      height = 155e-9
 c     Nondimensionalize
       gap = gap/length
       radius = radius/length
@@ -239,8 +293,10 @@ c     Nondimensionalize
 
 c     Common xy scaling
       sxy = gap+2.0*radius
-c     Scale by (nz layers)/(nz - (layers for pml + buffer layers))
-      sz = (dble(nz)/dble(nz-2*pmlthick-2))*height
+c     The total thickness is
+c
+c     (𝛌/2 PML) + (𝛌 buffer) + (cylinder) + (𝛌 buffer) + (𝛌/2 PML)
+      sz = 3*lambda+height
 
       xmin = glmin(xm1,npts)
       xmax = glmax(xm1,npts)
@@ -254,6 +310,8 @@ c     Scale by (nz layers)/(nz - (layers for pml + buffer layers))
          ym1(i,1,1,1) = sxy*(ym1(i,1,1,1)-ymin)/(ymax-ymin)-0.5*sxy
          zm1(i,1,1,1) = sz*(zm1(i,1,1,1)-zmin)/(zmax-zmin)-0.5*sz
       enddo
+      cylbot = -0.5*height
+      cyltop = 0.5*height
 
       xmin = glmin(xm1,npts)
       xmax = glmax(xm1,npts)
@@ -265,6 +323,8 @@ c     Scale by (nz layers)/(nz - (layers for pml + buffer layers))
       if (nid.eq.0) then
          write(*,*) 'usrdat2: cylinder radius = ',radius
          write(*,*) 'usrdat2: cylinder height = ',height
+         write(*,*) 'usrdat2: cylinder bottom = ',cylbot
+         write(*,*) 'usrdat2: cylinder top = ',cyltop
          write(*,*) 'usrdat2: cylinder gap = ',gap
          write(*,*) 'usrdat2: xmin,xmax = ',xmin,xmax
          write(*,*) 'usrdat2: ymin,ymax = ',ymin,ymax
@@ -284,8 +344,40 @@ c-----------------------------------------------------------------------
       common /ccpu/ cpu_t,cpu_dtime,cpu_chk
       real cpu_t,cpu_dtime,cpu_chk
 
+      common /userout/ disp,outindex(lxzfl),nout
+      integer outindex,nout
+      integer(8) disp
+
+      character(100) filename
+      integer i,j,k
       real cpu_p_t
-      real l2(6),linf(6)
+      real l2(6),linf(6),buf(lpts)
+
+c     Dump the x component of the H field below the resonator into a
+c     file
+      if (istep.eq.0) then
+         do i = 1,nout
+            j = outindex(i)
+            k = cemface(j)
+            buf(i) = xm1(k,1,1,1)
+         enddo
+         call write_buf('vtk/xcoordinates.dat',buf,nout,disp)
+         do i = 1,nout
+            j = outindex(i)
+            k = cemface(j)
+            buf(i) = ym1(k,1,1,1)
+         enddo
+         call write_buf('vtk/ycoordinates.dat',buf,nout,disp)
+      endif
+      if (mod(istep,50).eq.0) then
+         do i = 1,nout
+            j = outindex(i)
+            k = cemface(j)
+            buf(i) = hn(k,1)
+         enddo
+         write(filename,"(A6,I0.7,A4)") 'vtk/hx',istep,'.dat'
+         call write_buf(filename,buf,nout,disp)
+      endif
 
       if (istep.le.10.or.mod(istep,iocomm).eq.0) then
          call usersol
@@ -321,6 +413,31 @@ c-----------------------------------------------------------------------
 
  101  format(/,i10,i6,i4,i9,1p9e10.3,e9.2,' CPU: L2')
  102  format(  i10,i6,i4,i9,1p9e10.3,e9.2,' CPU: Linf')
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine write_buf(filename,buf,nbuf,disp)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'mpif.h'
+
+      character(len=*) filename
+      integer nbuf
+      integer(8) disp
+      real buf(lpts)
+
+      integer fileno,ierr
+
+      call mpi_file_open(mpi_comm_world,filename,
+     $     mpi_mode_wronly+mpi_mode_create,mpi_info_null,
+     $     fileno,ierr)
+      call mpi_file_set_view(fileno,disp,mpi_double,
+     $     mpi_double,'native',mpi_info_null,ierr)
+      call mpi_file_write(fileno,buf,nbuf,mpi_double,
+     $     mpi_status_ignore,ierr)
+      call mpi_file_close(fileno,ierr)
 
       return
       end
