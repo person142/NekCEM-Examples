@@ -134,9 +134,8 @@ c     is resolved.
       integer i,e,f,j,k,nx1_2,ierr
       integer disps(0:lp-1),tmp(0:lp-1)
       real xx,yy,zz,rr
-      real c0,twopi,tol
+      real twopi,tol
       parameter (
-     $     c0 = 299792458,      ! speed of light, in m/s
      $     twopi = 8.0*atan(1.0),
      $     tol = 1e-8)
 
@@ -157,18 +156,28 @@ c     Set the permittivities
         zz = zm1(nx1_2,nx1_2,nx1_2,e)
         rr = sqrt(xx**2+yy**2)
 
-        if (rr.lt.radius.and.zz.gt.cylbot.and.zz.lt.cyltop) then
+        if (zz.gt.cylbot.and.zz.lt.cyltop) then
+c     Inside the lens
+           if (rr.lt.radius) then
 c     Inside the resonator
-           do i = 1,nxyz
-              j = i+nxyz*(e-1)
-              permittivity(j) = 1.0 ! 2.5031**2
-              permeability(j) = 1.0
-           enddo
+              do i = 1,nxyz
+                 j = i+nxyz*(e-1)
+                 permittivity(j) = 2.5031**2
+                 permeability(j) = 1.0
+              enddo
+           else
+c     Inside the lens and outside the resonator
+              do i = 1,nxyz
+                 j = i+nxyz*(e-1)
+                 permittivity(j) = 1.41**2
+                 permeability(j) = 1.0
+              enddo
+           endif
         else
-c     Outside the resonator
+c     Outside the lens
            do i = 1,nxyz
               j = i+nxyz*(e-1)
-              permittivity(j) = 1.0 ! 1.41**2
+              permittivity(j) = 1.0
               permeability(j) = 1.0
            enddo
         endif
