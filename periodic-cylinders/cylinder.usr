@@ -33,7 +33,6 @@ c-----------------------------------------------------------------------
          eta = sqrt(mu/eps)
          kz = omega*sqrt(mu*eps)
          uinc = ramp(tt/(1.0*period))*sin(-kz*zz-omega*tt)
-c     uinc = sin(-kz*zz-omega*tt)
          incfhx(j) = incfhx(j)+uinc
          incfey(j) = incfey(j)+eta*uinc
       enddo
@@ -138,7 +137,7 @@ c     is resolved.
       real twopi,tol
       parameter (
      $     twopi = 8.0*atan(1.0),
-     $     tol = 1e-8)
+     $     tol = 1e-5)
 
 c     Nondimensionalize the wavelength
       omega = twopi/lambda
@@ -194,8 +193,8 @@ c     j is the global face number
                j = (e-1)*nxzf*nfaces+nxzf*(f-1)+i
 c     k is the volume global number associated with face j.
                k = cemface(j)
-               if (pmltag(e).eq.0
-     $              .or.abs(pmlinner(6)-zm1(k,1,1,1)).gt.tol) then
+               if (zm1(nx1_2,nx1_2,nx1_2,e).lt.cyltop
+     $              .or.abs(cyltop-zm1(k,1,1,1)).gt.tol) then
                   markinc = .false.
                   exit
                endif
