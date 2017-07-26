@@ -53,13 +53,13 @@ class FittedSine():
 
 def main():
     firststep = 0
-    laststep = 128650
-    step = 50
+    laststep = 16075
+    step = 25
 
-    dt = 3.107e-3
+    dt = 6.215e-3
     z = -7.104
     omega = 0.993
-    eps = 1.4
+    eps = 1.0
     mu = 1.0
 
     kz = np.sqrt(eps*mu)*omega

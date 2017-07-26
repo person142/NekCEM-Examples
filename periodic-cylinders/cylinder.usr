@@ -32,7 +32,8 @@ c-----------------------------------------------------------------------
          mu = permeability(k)
          eta = sqrt(mu/eps)
          kz = omega*sqrt(mu*eps)
-         uinc = ramp(tt/(3.0*period))*sin(-kz*zz-omega*tt)
+         uinc = ramp(tt/(1.0*period))*sin(-kz*zz-omega*tt)
+c     uinc = sin(-kz*zz-omega*tt)
          incfhx(j) = incfhx(j)+uinc
          incfey(j) = incfey(j)+eta*uinc
       enddo
@@ -378,7 +379,7 @@ c     file
          enddo
          call write_buf('vtk/ycoordinates.dat',buf,nout,disp)
       endif
-      if (mod(istep,50).eq.0) then
+      if (mod(istep,25).eq.0) then
          do i = 1,nout
             j = outindex(i)
             k = cemface(j)
