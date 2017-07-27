@@ -52,11 +52,11 @@ class FittedSine():
 
 
 def main():
-    firststep = 0
-    laststep = 16075
+    firststep = 9000
+    laststep = 10575
     step = 25
 
-    dt = 6.215e-3
+    dt = 8.49e-3
     z = -7.104
     omega = 0.993
     eps = 1.0
