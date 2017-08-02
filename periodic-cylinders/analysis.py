@@ -51,18 +51,28 @@ class FittedSine():
         return '\n'.join(info)
 
 
-def main():
-    firststep = 9000
-    laststep = 10575
-    step = 25
-
+def get_amplitude_and_phi(index, firststep, laststep, step):
     dt = 8.49e-3
     z = -7.104
     omega = 0.993
     eps = 1.0
     mu = 1.0
-
     kz = np.sqrt(eps*mu)*omega
+
+    hx = get_timeseries(index, firststep, laststep, step)
+    times = dt*np.arange(firststep, laststep, step)
+    hxinc = np.sin(-kz*z - omega*times)
+    fit = FittedSine(times, hx, kz, z, omega)
+    return fit.A, fit.phi
+
+
+def main():
+    firststep = 9000
+    laststep = 10575
+    step = 25
+
+
+
 
     x = load_buf('vtk/xcoordinates.dat')
     y = load_buf('vtk/ycoordinates.dat')

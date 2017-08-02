@@ -137,7 +137,7 @@ c     is resolved.
       real twopi,tol
       parameter (
      $     twopi = 8.0*atan(1.0),
-     $     tol = 1e-5)
+     $     tol = 1e-3)
 
 c     Nondimensionalize the wavelength
       omega = twopi/lambda
@@ -208,6 +208,7 @@ c     k is the volume global number associated with face j.
             endif
          enddo
       enddo
+      write(*,*) 'uservp: for process ',nid,', ninc = ',ninc
 
       if (nid.eq.0) write(*,*) 'uservp: bottom of the PML begins at ',
      $     pmlinner(5)
@@ -272,6 +273,7 @@ c-----------------------------------------------------------------------
       implicit none
       include 'SIZE'
       include 'GEOM'
+      include 'INPUT'
       include 'PML'
 
       common /scaling/ length,sxy,sz,radius,gap,cylbot,cyltop
@@ -292,7 +294,7 @@ c     Wavelength of the incident wave, in m
 c     Gap between cylinders in m
       gap = 46e-9
 c     Radius of the cylinder in m
-      radius = 158e-9
+      radius = param(70)
 c     Height of the cylinder in m
       height = 155e-9
 c     Nondimensionalize

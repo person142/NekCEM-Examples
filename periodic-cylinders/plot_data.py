@@ -36,14 +36,15 @@ class Table():
 def main():
     table = Table('t155-lambda633-sim-results-Phase.csv')
 
-    radii = [149, 150, 151, 152, 153, 154, 155, 156, 157, 158]
+    radii = list(range(130, 181))
     gaps = [46]
     phases_std = table.get_phases(radii, gaps)
-    phases = [0.9467198592747457, 0.9722228421559183,
-              1.00281088750689, 1.0368108556864222,
-              1.0727982668931104, 1.1093315970881696,
-              1.1451847086635345, 1.1787679451151407,
-              1.2090714764691635, 1.235163281494783]
+    phases = []
+    with open('phi.txt', 'r') as f:
+        for line in f:
+            phases.append(float(line.rstrip()))
+    phases = (np.array(phases)/np.pi) % 2 - 1.0
+
 
     plt.plot(radii, phases_std, 'r', label='theirs')
     plt.plot(radii, phases, 'b', label='ours')
